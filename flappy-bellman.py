@@ -18,12 +18,15 @@ import random
 env = gym.make("FlappyBird-v0", render_mode=None, use_lidar=False)
 
 A = [0, 1]      # Ações possíveis
-gamma = 0.9      # Fator de desconto
+gamma = 0.99      # Fator de desconto
 alpha = 0.1      # Taxa de aprendizado (Q-learning)
-epsilon = 0.1    # Taxa de exploração (ε-greedy)
+epsilon_start = 1.0  # Começa explorando 100%
+epsilon_end = 0.01   # Termina explorando apenas 1%
+epsilon_decay_rate = 0.9995 # Quão rápido epsilon cai (ajuste esse valor)
+epsilon = epsilon_start
 
 EPISODES = 20000
-MAX_STEPS = 500
+MAX_STEPS = 1000
 
 V = {}
 Q = {}
@@ -43,10 +46,13 @@ best_steps = 0
 
 for ep in range(EPISODES):
     obs, _ = env.reset()
-    state = tuple(np.round(obs, 2))
+    state = tuple(np.round(obs, 1))
     total_reward = 0
     episode_score = 0
     episode_steps = 0
+
+    if epsilon > epsilon_end:
+        epsilon *= epsilon_decay_rate
 
     for step in range(MAX_STEPS):
         # Política ε-greedy: explora ou explota
@@ -58,7 +64,7 @@ for ep in range(EPISODES):
             action = 1 if q1 > q0 else 0
 
         new_obs, reward, terminated, truncated, _ = env.step(action)
-        new_state = tuple(np.round(new_obs, 2))
+        new_state = tuple(np.round(new_obs, 1))
         done = terminated or truncated
 
         # Inicializa valores se ainda não existem
@@ -176,7 +182,7 @@ Em resumo:
 # Após o treinamento, o agente pode ser testado:
 test_env = gym.make("FlappyBird-v0", render_mode="human", use_lidar=False)
 obs, _ = test_env.reset()
-state = tuple(np.round(obs, 2))
+state = tuple(np.round(obs, 1))
 done = False
 score = 0
 
@@ -187,7 +193,7 @@ while not done:
     action = 1 if q1 > q0 else 0
 
     obs, reward, terminated, truncated, info = test_env.step(action)
-    state = tuple(np.round(obs, 2))
+    state = tuple(np.round(obs, 1))
     done = terminated or truncated
 
     if reward >= 0.99:
