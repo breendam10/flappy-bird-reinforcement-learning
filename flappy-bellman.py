@@ -2,7 +2,7 @@
 Prova de Conceito - Aprendizado por Reforço
 Ambiente: Flappy Bird (use_lidar=False)
 Objetivo: Definir um MDP e aplicar a Equação de Bellman para estimar V(s) e Q(s,a)
-Autor: <seu nome>
+Autor: Tredost
 """
 
 import gymnasium as gym
@@ -10,6 +10,7 @@ import flappy_bird_gymnasium
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import time
 
 # ----------------------------
 # 1. DEFINIÇÃO DO MDP
@@ -25,7 +26,7 @@ epsilon_end = 0.01   # Termina explorando apenas 1%
 epsilon_decay_rate = 0.9995 # Quão rápido epsilon cai (ajuste esse valor)
 epsilon = epsilon_start
 
-EPISODES = 20000
+EPISODES = 14000
 MAX_STEPS = 1000
 
 V = {}
@@ -39,23 +40,29 @@ mean_V = []
 best_ep = -1
 best_score = -1
 best_steps = 0
+best_actions = None
+best_initial_obs = None
 
 # ----------------------------
 # 2. COLETA DE EXPERIÊNCIAS E ATUALIZAÇÃO DE BELLMAN
 # ----------------------------
 
 for ep in range(EPISODES):
-    obs, _ = env.reset()
+    # Gera um seed por episódio para possibilitar replays determinísticos
+    # Use np.random para não avançar o estado do gerador 'random' usado pela política
+    ep_seed = int(np.random.randint(0, 2**31 - 1))
+    obs, _ = env.reset(seed=ep_seed)
+    initial_obs = obs
     state = tuple(np.round(obs, 1))
     total_reward = 0
     episode_score = 0
     episode_steps = 0
+    episode_actions = []
 
     if epsilon > epsilon_end:
         epsilon *= epsilon_decay_rate
 
     for step in range(MAX_STEPS):
-        # Política ε-greedy: explora ou explota
         if random.random() < epsilon:
             action = random.choice(A)
         else:
@@ -63,11 +70,12 @@ for ep in range(EPISODES):
             q1 = Q.get((state, 1), 0.0)
             action = 1 if q1 > q0 else 0
 
+        episode_actions.append(action)
+
         new_obs, reward, terminated, truncated, _ = env.step(action)
         new_state = tuple(np.round(new_obs, 1))
         done = terminated or truncated
 
-        # Inicializa valores se ainda não existem
         if state not in V:
             V[state] = 0.0
         if (state, action) not in Q:
@@ -102,28 +110,17 @@ for ep in range(EPISODES):
         best_ep = ep
         best_score = episode_score
         best_steps = episode_steps
+        # Salva a sequência de ações (e a observação inicial) desse melhor episódio
+        best_actions = episode_actions.copy()
+        best_initial_obs = initial_obs
+        best_seed = ep_seed
 
 env.close()
 
 # ----------------------------
-# 4. RESULTADOS TEXTUAIS
-# ----------------------------
-
-print("\n=== Função de Valor dos Estados (V) ===")
-for i, (s, v) in enumerate(list(V.items())[:5]):
-    print(f"Estado {i+1}: V(s) = {v:.3f}")
-
-print("\n=== Função de Valor Estado-Ação (Q) ===")
-for i, ((s, a), q) in enumerate(list(Q.items())[:5]):
-    print(f"Q(s,a={a}) = {q:.3f}")
-
-print(f"\nMelhor episódio: {best_ep} | Canos passados: {best_score} | Steps: {best_steps}")
-print("\nCálculo finalizado com sucesso!")
-
-# ----------------------------
 # 5. GRÁFICOS DE ANÁLISE
 # ----------------------------
-
+'''''
 plt.figure()
 plt.plot(range(len(scores)), scores)
 plt.xlabel("Episódio")
@@ -160,44 +157,44 @@ plt.ylabel("Steps até o fim")
 plt.title("Tempo de Sobrevivência por Episódio")
 plt.grid(True)
 
-plt.show()
+plt.show()'''
 
 # ----------------------------
 # 6. APRENDIZAGEM POR REFORÇO ATIVA (Q-LEARNING EM AÇÃO)
 # ----------------------------
 """
-Aqui o agente já utiliza Q-Learning, uma forma ativa de aprendizado baseada diretamente na
-Equação de Bellman. Após muitos episódios, os valores de Q(s,a) passam a guiar as ações.
-
-- O termo α [R + γ·max(Q(s′,a′)) − Q(s,a)] é o “erro de Bellman”, ajustando o valor aprendido.
-- A política ε-greedy permite explorar o ambiente e evitar overfitting em poucas ações.
-- Assim, o agente tende a bater as asas nos momentos corretos, aprendendo a sobreviver mais tempo.
-
 Em resumo:
 ✅ O agente começa aleatório (exploração pura)
 ✅ Aprende gradualmente por Bellman iterativo
 ✅ Converge para uma política que sobrevive e passa mais canos
 """
 
-# Após o treinamento, o agente pode ser testado:
-test_env = gym.make("FlappyBird-v0", render_mode="human", use_lidar=False)
-obs, _ = test_env.reset()
-state = tuple(np.round(obs, 1))
-done = False
-score = 0
-
-while not done:
-    # Escolhe a melhor ação aprendida
-    q0 = Q.get((state, 0), 0.0)
-    q1 = Q.get((state, 1), 0.0)
-    action = 1 if q1 > q0 else 0
-
-    obs, reward, terminated, truncated, info = test_env.step(action)
+# Após o treinamento, reproduz a melhor run encontrada (se houver)
+if best_actions is None or len(best_actions) == 0:
+    print("\nNenhuma run salva como melhor episódio — não há replay disponível.")
+else:
+    print(f"\nReproduzindo melhor episódio #{best_ep} | Canos passados: {best_score} | Steps: {best_steps}")
+    replay_env = gym.make("FlappyBird-v0", render_mode="human", use_lidar=False)
+    # Se tivermos o seed salvo, use-o para tentar reproduzir o mesmo estado inicial
+    if 'best_seed' in globals():
+        obs, _ = replay_env.reset(seed=best_seed)
+    else:
+        obs, _ = replay_env.reset()
     state = tuple(np.round(obs, 1))
-    done = terminated or truncated
+    done = False
+    score = 0
 
-    if reward >= 0.99:
-        score += 1
+    # Executa a sequência de ações salva. Caso o episódio termine antes do fim da lista, paramos.
+    for i, action in enumerate(best_actions):
+        if done:
+            break
+        obs, reward, terminated, truncated, info = replay_env.step(action)
+        state = tuple(np.round(obs, 1))
+        done = terminated or truncated
+        if reward >= 0.99:
+            score += 1
+        # Pequeno delay para a visualização do replay
+        time.sleep(0.02)
 
-print(f"\n=== Teste Final ===\nCanos passados: {score}")
-test_env.close()
+    print(f"\n=== Replay Final ===\nCanos passados (reproduzidos): {score} | Steps executados: {i+1}")
+    replay_env.close()
