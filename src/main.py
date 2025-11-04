@@ -88,18 +88,9 @@ for ep in range(EPISODES):
             break
         state = new_state
 
-    # Após o episódio: First-Visit Monte Carlo para Q(s,a)
+    # Após o episódio: Every-Visit Monte Carlo para Q(s,a)
     T = len(episode)
     for t, (s_t, a_t, _) in enumerate(episode):
-        # verificar se esta é a primeira visita de (s_t,a_t)
-        first_visit = True
-        for prev in episode[:t]:
-            if prev[0] == s_t and prev[1] == a_t:
-                first_visit = False
-                break
-        if not first_visit:
-            continue
-
         # calcular retorno G_t = sum_{k=t}^{T-1} gamma^{k-t} * r_{k}
         G = 0.0
         pow_gamma = 1.0
@@ -113,7 +104,7 @@ for ep in range(EPISODES):
         if (s_t, a_t) not in Q:
             Q[(s_t, a_t)] = 0.0
 
-        # atualização incremental da média (primeira visita)
+        # atualização incremental da média (every-visit: todas as ocorrências são atualizadas)
         returns_count[(s_t, a_t)] += 1
         N = returns_count[(s_t, a_t)]
         Q[(s_t, a_t)] += (G - Q[(s_t, a_t)]) / N
@@ -222,3 +213,10 @@ if best_episode is not None:
     plt.close()
 else:
     print("Nenhum episódio armazenado como 'melhor episodio'.")
+    plt.plot(range(len(rewards_best)), rewards_best, marker='o', markersize=3)
+    plt.xlabel("Passo do Episódio")
+    plt.ylabel("Recompensa")
+    plt.title("Recompensas por Passo - Melhor Episódio")
+    plt.grid(True)
+    plt.savefig(os.path.join(images_dir, "best_episode_rewards.png"))
+    plt.close()
