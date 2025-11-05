@@ -19,12 +19,12 @@ import time
 
 env = gym.make("FlappyBird-v0", render_mode=None, use_lidar=False)
 
-A = [0, 1]      # Ações possíveis
-gamma = 0.99      # Fator de desconto
-alpha = 0.1      # Taxa de aprendizado (Q-learning)
-epsilon_start = 1.0  # Começa explorando 100%
-epsilon_end = 0.01   # Termina explorando apenas 1%
-epsilon_decay_rate = 0.9995 # Quão rápido epsilon cai (ajuste esse valor)
+A = [0, 1]                      # Ações possíveis
+gamma = 0.99                    # Fator de desconto
+alpha = 0.1                     # Taxa de aprendizado (Q-learning)
+epsilon_start = 1.0             # Começa explorando 100%
+epsilon_end = 0.01              # Termina explorando apenas 1%
+epsilon_decay_rate = 0.9995     # Quão rápido epsilon cai (ajuste esse valor)
 epsilon = epsilon_start
 
 EPISODES = 20000
