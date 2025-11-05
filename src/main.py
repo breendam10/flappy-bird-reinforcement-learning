@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random
 import os
+import time
 
 # ----------------------------
 # 1. DEFINIÇÃO DO MDP
@@ -46,8 +47,15 @@ mean_V = []
 best_ep = -1
 best_score = -1
 best_steps = 0
+
+# novos: rastrear melhores por recompensa e por score separadamente
 best_total_reward = -np.inf
-best_episode = None
+best_episode_by_reward = None
+best_steps_by_reward = 0
+
+best_episode_by_score = None
+best_score = -1
+best_steps_by_score = 0
 
 # ----------------------------
 # 2. COLETA DE EXPERIÊNCIAS E ATUALIZAÇÃO - MONTE CARLO FIRST-VISIT
@@ -120,11 +128,17 @@ for ep in range(EPISODES):
     mean_V.append(np.mean(list(V.values())) if len(V) > 0 else 0.0)
 
     # novo: atualizar melhor episódio com base na recompensa total
-    if total_reward > best_total_reward:
+    if total_reward > best_total_reward or (total_reward == best_total_reward and episode_steps > best_steps_by_reward):
         best_ep = ep
         best_total_reward = total_reward
-        best_steps = episode_steps
-        best_episode = episode.copy()
+        best_steps_by_reward = episode_steps
+        best_episode_by_reward = episode.copy()
+
+    # novo: atualizar melhor episódio com base no numero de canos (episode_score)
+    if episode_score > best_score or (episode_score == best_score and total_reward > (best_total_reward if best_episode_by_score is None else np.sum([r for (_,_,r) in best_episode_by_score]))):
+        best_score = episode_score
+        best_steps_by_score = episode_steps
+        best_episode_by_score = episode.copy()
 
 env.close()
 
@@ -140,7 +154,8 @@ print("\n=== Função de Valor Estado-Ação (Q) ===")
 for i, ((s, a), q) in enumerate(list(Q.items())[:5]):
     print(f"Q(s,a={a}) = {q:.3f}")
 
-print(f"\nMelhor episódio (por recompensa total): {best_ep} | Recompensa: {best_total_reward:.3f} | Steps: {best_steps}")
+print(f"\nMelhor episódio (por recompensa total): {best_total_reward:.3f} | Steps: {best_steps_by_reward}")
+print(f"Melhor episódio (por canos passados): {best_score} | Steps: {best_steps_by_score}")
 print("\nCálculo finalizado com sucesso!")
 
 # ----------------------------
@@ -194,29 +209,46 @@ plt.savefig(os.path.join(images_dir, "steps_per_episode.png"))
 plt.close()
 
 # substitui teste ao vivo por relatório e gráfico do melhor episódio
-if best_episode is not None:
-    rewards_best = [r for (_, _, r) in best_episode]
-    actions_best = [a for (_, a, _) in best_episode]
+# escolha qual reprodução usar: 'score' (prefere episódios que passaram mais canos) ou 'reward' (maior soma de recompensas)
+PLAY_BEST = True
+PLAY_BEST_BY = "score"  # "score" ou "reward"
 
-    print("\n=== Melhor Episódio (detalhes por passo) ===")
-    print(f"Episódio: {best_ep} | Recompensa total: {best_total_reward:.3f} | Steps: {best_steps}")
-    print(f"Ações (primeiros 50): {actions_best[:50]}")
-    print(f'Recompensas (primeiros 50): {rewards_best[:50]}')
+if PLAY_BEST:
+    if PLAY_BEST_BY == "score":
+        chosen = best_episode_by_score
+        label = f"best by score (canos={best_score})"
+    else:
+        chosen = best_episode_by_reward
+        label = f"best by reward (reward={best_total_reward:.3f})"
 
-    plt.figure(figsize=(8,4))
-    plt.plot(range(len(rewards_best)), rewards_best, marker='o', markersize=3)
-    plt.xlabel("Passo do Episódio")
-    plt.ylabel("Recompensa")
-    plt.title("Recompensas por Passo - Melhor Episódio")
-    plt.grid(True)
-    plt.savefig(os.path.join(images_dir, "best_episode_rewards.png"))
-    plt.close()
-else:
-    print("Nenhum episódio armazenado como 'melhor episodio'.")
-    plt.plot(range(len(rewards_best)), rewards_best, marker='o', markersize=3)
-    plt.xlabel("Passo do Episódio")
-    plt.ylabel("Recompensa")
-    plt.title("Recompensas por Passo - Melhor Episódio")
-    plt.grid(True)
-    plt.savefig(os.path.join(images_dir, "best_episode_rewards.png"))
-    plt.close()
+    if chosen:
+        rewards_best = [r for (_, _, r) in chosen]
+        actions_best = [a for (_, a, _) in chosen]
+
+        print(f"\n=== Reproduzindo episódio escolhido: {label} ===")
+        print(f"Ações (primeiros 50): {actions_best[:50]}")
+        print(f"Recompensas (primeiros 50): {rewards_best[:50]}")
+
+        plt.figure(figsize=(8,4))
+        plt.plot(range(len(rewards_best)), rewards_best, marker='o', markersize=3)
+        plt.xlabel("Passo do Episódio")
+        plt.ylabel("Recompensa")
+        plt.title(f"Recompensas por Passo - {label}")
+        plt.grid(True)
+        plt.savefig(os.path.join(images_dir, "chosen_best_episode_rewards.png"))
+        plt.close()
+
+        # playback visual opcional
+        env_play = gym.make("FlappyBird-v0", render_mode="human", use_lidar=False)
+        env_play.reset()
+        done = False
+        print("\nRodando episódio escolhido (playback) — feche a janela para interromper.")
+        for (s, a, r) in chosen:
+            if done:
+                break
+            _, _, terminated, truncated, _ = env_play.step(a)
+            done = terminated or truncated
+            time.sleep(0.02)
+        env_play.close()
+    else:
+        print("Nenhum episódio disponível para reprodução.")
