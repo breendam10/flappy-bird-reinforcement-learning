@@ -10,6 +10,8 @@ import flappy_bird_gymnasium
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import os
+import time
 
 # ----------------------------
 # 1. DEFINIÇÃO DO MDP
@@ -31,6 +33,11 @@ MAX_STEPS = 1000
 V = {}
 Q = {}
 
+# novo: pasta para salvar imagens (vai ficar em ../images relativo a src/)
+images_dir = os.path.join(os.path.dirname(__file__), "..", "images")
+images_dir = os.path.abspath(images_dir)
+os.makedirs(images_dir, exist_ok=True)
+
 scores = []
 avg_rewards = []
 steps_per_episode = []
@@ -39,6 +46,7 @@ mean_V = []
 best_ep = -1
 best_score = -1
 best_steps = 0
+best_episode_by_score = None   # guarda o episódio com maior episode_score
 
 # ----------------------------
 # 2. COLETA DE EXPERIÊNCIAS E ATUALIZAÇÃO DE BELLMAN
@@ -47,6 +55,7 @@ best_steps = 0
 for ep in range(EPISODES):
     obs, _ = env.reset()
     state = tuple(np.round(obs, 1))
+    episode = []  # <- ADICIONADO: registrar (state, action, reward) para playback
     total_reward = 0
     episode_score = 0
     episode_steps = 0
@@ -66,6 +75,8 @@ for ep in range(EPISODES):
         new_obs, reward, terminated, truncated, _ = env.step(action)
         new_state = tuple(np.round(new_obs, 1))
         done = terminated or truncated
+
+        episode.append((state, action, reward))  # <- ADICIONADO: salvar passo
 
         # Inicializa valores se ainda não existem
         if state not in V:
@@ -98,10 +109,12 @@ for ep in range(EPISODES):
     steps_per_episode.append(episode_steps)
     mean_V.append(np.mean(list(V.values())))
 
-    if episode_score > best_score:
+    # atualiza melhor episódio por número de canos passados (episode_score)
+    if episode_score > best_score or (episode_score == best_score and episode_steps > best_steps):
         best_ep = ep
         best_score = episode_score
         best_steps = episode_steps
+        best_episode_by_score = episode.copy()
 
 env.close()
 
@@ -121,7 +134,7 @@ print(f"\nMelhor episódio: {best_ep} | Canos passados: {best_score} | Steps: {b
 print("\nCálculo finalizado com sucesso!")
 
 # ----------------------------
-# 5. GRÁFICOS DE ANÁLISE
+# 5. GRÁFICOS DE ANÁLISE (SALVANDO)
 # ----------------------------
 
 plt.figure()
@@ -130,6 +143,8 @@ plt.xlabel("Episódio")
 plt.ylabel("Canos Passados")
 plt.title("Desempenho por Episódio (Flappy Bird)")
 plt.grid(True)
+plt.savefig(os.path.join(images_dir, "scores_per_episode.png"))
+plt.close()
 
 plt.figure()
 plt.plot(range(len(avg_rewards)), avg_rewards)
@@ -137,6 +152,8 @@ plt.xlabel("Episódio")
 plt.ylabel("Recompensa Total")
 plt.title("Evolução da Recompensa Média")
 plt.grid(True)
+plt.savefig(os.path.join(images_dir, "avg_rewards.png"))
+plt.close()
 
 plt.figure()
 plt.plot(range(len(mean_V)), mean_V)
@@ -144,14 +161,18 @@ plt.xlabel("Episódio")
 plt.ylabel("Média de V(s)")
 plt.title("Convergência da Função de Valor dos Estados")
 plt.grid(True)
+plt.savefig(os.path.join(images_dir, "mean_V_convergence.png"))
+plt.close()
 
 Q0 = [q for (s, a), q in Q.items() if a == 0]
 Q1 = [q for (s, a), q in Q.items() if a == 1]
 
 plt.figure()
-plt.bar(["Não bater (0)", "Bater (1)"], [np.mean(Q0), np.mean(Q1)], color=["#77aaff", "#ff7777"])
+plt.bar(["Não bater (0)", "Bater (1)"], [np.mean(Q0) if Q0 else 0.0, np.mean(Q1) if Q1 else 0.0], color=["#77aaff", "#ff7777"])
 plt.title("Comparação Média de Q(s,a) entre Ações")
 plt.ylabel("Valor Médio de Q(s,a)")
+plt.savefig(os.path.join(images_dir, "mean_Q_comparison.png"))
+plt.close()
 
 plt.figure()
 plt.plot(range(len(steps_per_episode)), steps_per_episode)
@@ -159,45 +180,39 @@ plt.xlabel("Episódio")
 plt.ylabel("Steps até o fim")
 plt.title("Tempo de Sobrevivência por Episódio")
 plt.grid(True)
+plt.savefig(os.path.join(images_dir, "steps_per_episode.png"))
+plt.close()
 
-plt.show()
+# salva gráfico do melhor episódio (por score) se disponível
+if best_episode_by_score:
+    rewards_best = [r for (_, _, r) in best_episode_by_score]
+    actions_best = [a for (_, a, _) in best_episode_by_score]
+    plt.figure(figsize=(8,4))
+    plt.plot(range(len(rewards_best)), rewards_best, marker='o', markersize=3)
+    plt.xlabel("Passo do Episódio")
+    plt.ylabel("Recompensa")
+    plt.title(f"Recompensas por Passo - Melhor Episódio (score={best_score})")
+    plt.grid(True)
+    plt.savefig(os.path.join(images_dir, "best_episode_by_score_rewards.png"))
+    plt.close()
 
 # ----------------------------
-# 6. APRENDIZAGEM POR REFORÇO ATIVA (Q-LEARNING EM AÇÃO)
+# 6. PLAYBACK DO MELHOR EPISÓDIO (por canos passados)
 # ----------------------------
-"""
-Aqui o agente já utiliza Q-Learning, uma forma ativa de aprendizado baseada diretamente na
-Equação de Bellman. Após muitos episódios, os valores de Q(s,a) passam a guiar as ações.
-
-- O termo α [R + γ·max(Q(s′,a′)) − Q(s,a)] é o “erro de Bellman”, ajustando o valor aprendido.
-- A política ε-greedy permite explorar o ambiente e evitar overfitting em poucas ações.
-- Assim, o agente tende a bater as asas nos momentos corretos, aprendendo a sobreviver mais tempo.
-
-Em resumo:
-✅ O agente começa aleatório (exploração pura)
-✅ Aprende gradualmente por Bellman iterativo
-✅ Converge para uma política que sobrevive e passa mais canos
-"""
-
-# Após o treinamento, o agente pode ser testado:
-test_env = gym.make("FlappyBird-v0", render_mode="human", use_lidar=False)
-obs, _ = test_env.reset()
-state = tuple(np.round(obs, 1))
-done = False
-score = 0
-
-while not done:
-    # Escolhe a melhor ação aprendida
-    q0 = Q.get((state, 0), 0.0)
-    q1 = Q.get((state, 1), 0.0)
-    action = 1 if q1 > q0 else 0
-
-    obs, reward, terminated, truncated, info = test_env.step(action)
-    state = tuple(np.round(obs, 1))
-    done = terminated or truncated
-
-    if reward >= 0.99:
-        score += 1
-
-print(f"\n=== Teste Final ===\nCanos passados: {score}")
-test_env.close()
+PLAY_BEST = True  # coloque False para não abrir a janela ao final
+if PLAY_BEST:
+    if not best_episode_by_score:
+        print("Nenhum episódio válido encontrado para reprodução.")
+    else:
+        print(f"\nReproduzindo melhor episódio (por canos): episódio {best_ep}, canos={best_score}, steps={best_steps}")
+        env_play = gym.make("FlappyBird-v0", render_mode="human", use_lidar=False)
+        obs, _ = env_play.reset()
+        done = False
+        # reproduz ações salvas
+        for (s, a, r) in best_episode_by_score:
+            if done:
+                break
+            _, _, terminated, truncated, _ = env_play.step(a)
+            done = terminated or truncated
+            time.sleep(0.02)
+        env_play.close()
