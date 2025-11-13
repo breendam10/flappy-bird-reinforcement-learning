@@ -33,10 +33,14 @@ MAX_STEPS = 1000
 V = {}
 Q = {}
 
-# novo: pasta para salvar imagens (vai ficar em ../images relativo a src/)
+# pasta para salvar imagens (vai ficar em ../images relativo a src/)
 images_dir = os.path.join(os.path.dirname(__file__), "..", "images")
 images_dir = os.path.abspath(images_dir)
 os.makedirs(images_dir, exist_ok=True)
+# pasta para salvar resultados (CSV)
+results_dir = os.path.join(os.path.dirname(__file__), "..", "results")
+results_dir = os.path.abspath(results_dir)
+os.makedirs(results_dir, exist_ok=True)
 
 scores = []
 avg_rewards = []
@@ -121,6 +125,14 @@ env.close()
 # ----------------------------
 # 4. RESULTADOS TEXTUAIS
 # ----------------------------
+
+# Salvar média de V(s) por episódio em CSV (episode,mean_V)
+try:
+    csv_path = os.path.join(results_dir, "mean_V_per_episode.csv")
+    np.savetxt(csv_path, np.column_stack((np.arange(len(mean_V)), mean_V)), delimiter=",", header="episode,mean_V", comments='')
+    print(f"Saved mean_V per episode to: {csv_path}")
+except Exception as e:
+    print(f"Warning: failed to save mean_V CSV: {e}")
 
 print("\n=== Função de Valor dos Estados (V) ===")
 for i, (s, v) in enumerate(list(V.items())[:5]):
