@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 comparador.py
 
@@ -33,7 +32,7 @@ def find_target_dirs(root: str = ".") -> dict:
 
     Retorna um dicionário {folder_name: [path1, path2, ...]}.
     """
-    names = ["mcfv-results", "mcev-results", "qlrn-results"]
+    names = ["mcfv-results", "mcev-results"] #"qlrn-results"
     found = {n: [] for n in names}
 
     # procurar no root e em root/results
