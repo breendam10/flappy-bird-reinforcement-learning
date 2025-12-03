@@ -25,6 +25,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
+import warnings
 
 
 def find_target_dirs(root: str = ".") -> dict:
@@ -32,7 +33,7 @@ def find_target_dirs(root: str = ".") -> dict:
 
     Retorna um dicionário {folder_name: [path1, path2, ...]}.
     """
-    names = ["mcfv-results", "mcev-results"] #"qlrn-results"
+    names = ["mcfv-results", "mcev-results", "qlrn-results"]
     found = {n: [] for n in names}
 
     # procurar no root e em root/results
@@ -123,16 +124,79 @@ def read_mean_v(csv_path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         return None
 
 
-def plot_overlaid(series: List[Tuple[str, Tuple[np.ndarray, np.ndarray]]], out_path: str, title: str) -> None:
+def _aggregate_series(series: List[Tuple[str, Tuple[np.ndarray, np.ndarray]]]) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    """Agrega várias séries (label, (x,y)) em uma grade x comum.
+
+    Retorna (x_common, mean, min, max) ou None se não houver dados válidos.
+    """
+    if not series:
+        return None
+    # coletar todos os xs válidos
+    valid = [(s[1][0], s[1][1]) for s in series if s[1] and s[1][0] is not None and s[1][1] is not None]
+    if not valid:
+        return None
+    xs_list = [x for x, _ in valid]
+    ys_list = [y for _, y in valid]
+    xs_all = np.unique(np.concatenate(xs_list))
+    xs_sorted = np.sort(xs_all)
+    mat = np.full((len(valid), len(xs_sorted)), np.nan)
+    for i, (x, y) in enumerate(valid):
+        try:
+            if x.size == 0 or y.size == 0:
+                continue
+            y_interp = np.interp(xs_sorted, x, y)
+            # evitar extrapolação: valores fora do domínio original tornam-se NaN
+            mask = (xs_sorted < x.min()) | (xs_sorted > x.max())
+            if mask.any():
+                y_interp[mask] = np.nan
+            mat[i, :] = y_interp
+        except Exception:
+            continue
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        mean = np.nanmean(mat, axis=0)
+        mn = np.nanmin(mat, axis=0)
+        mx = np.nanmax(mat, axis=0)
+
+    return xs_sorted, mean, mn, mx
+
+
+def _plot_aggregate(xs: np.ndarray, mean: np.ndarray, mn: np.ndarray, mx: np.ndarray, out_path: str, title: str, label: Optional[str] = None, color: Optional[str] = None, fill_alpha: float = 0.2) -> None:
     plt.figure(figsize=(10, 6))
-    for label, (x, y) in series:
-        plt.plot(x, y, label=label)
-    plt.xlabel("Episódio")
-    plt.ylabel("Média de V(s)")
-    plt.title(title)
-    plt.grid(True)
-    if series:
-        plt.legend(fontsize="small")
+    ax = plt.gca()
+    # plot and obtain the color chosen by matplotlib when color not provided
+    if color is None:
+        line, = ax.plot(xs, mean, label=label or "Média", linewidth=2.6)
+        color = line.get_color()
+    else:
+        line, = ax.plot(xs, mean, label=label or "Média", color=color, linewidth=2.6)
+    ax.fill_between(xs, mn, mx, color=color, alpha=fill_alpha)
+    ax.set_xlabel("Episódio")
+    ax.set_ylabel("Média de V(s)")
+    ax.set_title(title)
+    ax.grid(True)
+    if label:
+        ax.legend(fontsize="small")
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
+
+def _plot_combined_aggregates(aggregates: List[Tuple[str, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]], out_path: str, title: str) -> None:
+    plt.figure(figsize=(10, 6))
+    ax = plt.gca()
+    cmap = plt.get_cmap("tab10")
+    for i, (folder_name, (xs, mean, mn, mx)) in enumerate(aggregates):
+        color = cmap(i % 10)
+        ax.plot(xs, mean, label=folder_name, color=color, linewidth=2.6)
+        ax.fill_between(xs, mn, mx, color=color, alpha=0.12)
+    ax.set_xlabel("Episódio")
+    ax.set_ylabel("Média de V(s)")
+    ax.set_title(title)
+    ax.grid(True)
+    if aggregates:
+        ax.legend(fontsize="small")
     plt.tight_layout()
     plt.savefig(out_path)
     plt.close()
@@ -144,7 +208,7 @@ def main(root: str = ".", out_dir: str = "images") -> int:
     os.makedirs(out_dir, exist_ok=True)
 
     found = find_target_dirs(root)
-    combined_series: List[Tuple[str, Tuple[np.ndarray, np.ndarray]]] = []
+    combined_aggregates: List[Tuple[str, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]] = []
 
     for folder_name, paths in found.items():
         folder_series: List[Tuple[str, Tuple[np.ndarray, np.ndarray]]] = []
@@ -158,18 +222,23 @@ def main(root: str = ".", out_dir: str = "images") -> int:
                 x, y = data
                 label = os.path.relpath(csv_file, start=root)
                 folder_series.append((label, (x, y)))
-                combined_series.append((f"{folder_name}: {label}", (x, y)))
 
         if folder_series:
-            out_path = os.path.join(out_dir, f"{folder_name}_convergence.png")
-            plot_overlaid(folder_series, out_path, "Convergência da Função de Valor dos Estados")
-            print(f"Salvou gráfico por pasta: {out_path}")
+            agg = _aggregate_series(folder_series)
+            if agg is None:
+                print(f"Aviso: não foi possível agregar séries para: {folder_name}")
+            else:
+                xs, mean, mn, mx = agg
+                out_path = os.path.join(out_dir, f"{folder_name}_convergence.png")
+                _plot_aggregate(xs, mean, mn, mx, out_path, "Convergência da Função de Valor dos Estados", label=folder_name)
+                combined_aggregates.append((folder_name, (xs, mean, mn, mx)))
+                print(f"Salvou gráfico por pasta: {out_path}")
         else:
             print(f"Nenhum CSV encontrado em pasta(s) para: {folder_name}")
 
-    if combined_series:
+    if combined_aggregates:
         out_path = os.path.join(out_dir, "all_convergence.png")
-        plot_overlaid(combined_series, out_path, "Convergência da Função de Valor dos Estados")
+        _plot_combined_aggregates(combined_aggregates, out_path, "Convergência da Função de Valor dos Estados")
         print(f"Salvou gráfico combinado: {out_path}")
     else:
         print("Nenhum CSV encontrado nas pastas alvo. Nenhum gráfico combinado gerado.")
