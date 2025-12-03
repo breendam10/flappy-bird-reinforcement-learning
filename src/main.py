@@ -68,19 +68,21 @@ for ep in range(EPISODES):
         epsilon *= epsilon_decay_rate
 
     for step in range(MAX_STEPS):
-        # Política ε-greedy: explora ou explota
-        if random.random() < epsilon:
-            action = random.choice(A)
-        else:
-            q0 = Q.get((state, 0), 0.0)
-            q1 = Q.get((state, 1), 0.0)
-            action = 1 if q1 > q0 else 0
+        # Implementação SARSA (on-policy)
+        # Escolhe ação atual por ε-greedy apenas se não existir (início do episódio)
+        if 'action' not in locals():
+            if random.random() < epsilon:
+                action = random.choice(A)
+            else:
+                q0 = Q.get((state, 0), 0.0)
+                q1 = Q.get((state, 1), 0.0)
+                action = 1 if q1 > q0 else 0
 
         new_obs, reward, terminated, truncated, _ = env.step(action)
         new_state = tuple(np.round(new_obs, 1))
         done = terminated or truncated
 
-        episode.append((state, action, reward))  # <- ADICIONADO: salvar passo
+        episode.append((state, action, reward))
 
         # Inicializa valores se ainda não existem
         if state not in V:
@@ -88,12 +90,17 @@ for ep in range(EPISODES):
         if (state, action) not in Q:
             Q[(state, action)] = 0.0
 
-        # ----------------------------
-        # 3. EQUAÇÃO DE BELLMAN - Q-LEARNING
-        # ----------------------------
-        # Q(s,a) <- Q(s,a) + α [R + γ max_a' Q(s',a') - Q(s,a)]
-        best_next = max(Q.get((new_state, a), 0.0) for a in A)
-        td_target = reward + gamma * best_next
+        # Seleciona next_action por ε-greedy (política on-policy)
+        if random.random() < epsilon:
+            next_action = random.choice(A)
+        else:
+            q0n = Q.get((new_state, 0), 0.0)
+            q1n = Q.get((new_state, 1), 0.0)
+            next_action = 1 if q1n > q0n else 0
+
+        # SARSA update: Q(s,a) <- Q(s,a) + α [R + γ Q(s',a') - Q(s,a)]
+        q_next = Q.get((new_state, next_action), 0.0)
+        td_target = reward + gamma * q_next
         td_error = td_target - Q[(state, action)]
         Q[(state, action)] += alpha * td_error
         V[state] = max(Q.get((state, a), 0.0) for a in A)
@@ -104,8 +111,14 @@ for ep in range(EPISODES):
             episode_score += 1
 
         if done:
+            # encerrar episódio; limpar variável action para próximo episódio
+            if 'action' in locals():
+                del action
             break
+
+        # avança estado e ação para o próximo passo (on-policy)
         state = new_state
+        action = next_action
 
     # Atualiza métricas
     scores.append(episode_score)
@@ -127,8 +140,9 @@ env.close()
 # ----------------------------
 
 # Salvar média de V(s) por episódio em CSV (episode,mean_V)
+current_timestamp = time.time()
 try:
-    csv_path = os.path.join(results_dir, "mean_V_per_episode.csv")
+    csv_path = os.path.join(results_dir, f"mean_V_per_episode{current_timestamp}.csv")
     np.savetxt(csv_path, np.column_stack((np.arange(len(mean_V)), mean_V)), delimiter=",", header="episode,mean_V", comments='')
     print(f"Saved mean_V per episode to: {csv_path}")
 except Exception as e:
@@ -212,7 +226,7 @@ if best_episode_by_score:
 # ----------------------------
 # 6. PLAYBACK DO MELHOR EPISÓDIO (por canos passados)
 # ----------------------------
-PLAY_BEST = True  # coloque False para não abrir a janela ao final
+PLAY_BEST = False  # coloque False para não abrir a janela ao final
 if PLAY_BEST:
     if not best_episode_by_score:
         print("Nenhum episódio válido encontrado para reprodução.")
