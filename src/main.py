@@ -219,6 +219,7 @@ plt.xlabel("Episódio")
 plt.ylabel("Steps até o fim")
 plt.title("Tempo de Sobrevivência por Episódio")
 plt.grid(True)
+plt.ylim(20, 400)
 plt.savefig(os.path.join(images_dir, "steps_per_episode.png"))
 plt.close()
 
